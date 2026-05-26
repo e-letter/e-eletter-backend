@@ -98,6 +98,7 @@ func SetupRouter(
 			protected.GET("/majors", masterDataHandler.GetMajors)
 			protected.GET("/major/:id", masterDataHandler.GetMajor)
 			protected.GET("/students", masterDataHandler.GetStudents)
+			protected.GET("/subjects", adminHandler.GetSubjects)
 
 			// Notifications
 			protected.GET("/notifications", notificationHandler.GetNotifications)

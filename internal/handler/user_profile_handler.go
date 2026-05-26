@@ -45,12 +45,25 @@ func (h *UserProfileHandler) GetProfile(c *gin.Context) {
 }
 
 func (h *UserProfileHandler) UpdateProfile(c *gin.Context) {
-	var req domain.UserProfileUpdatePayload
+	userIDVal, ok := c.Get("userId")
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, "Token akses diperlukan")
+		return
+	}
+	userID, _ := userIDVal.(int)
+
+	var req domain.UserProfileUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	user, err := h.service.UpdateProfile(req)
+
+	payload := domain.UserProfileUpdatePayload{
+		UserID:                   userID,
+		UserProfileUpdateRequest: req,
+	}
+
+	user, err := h.service.UpdateProfile(payload)
 	if err != nil {
 		if err.Error() == "Missing userId" {
 			response.Error(c, http.StatusBadRequest, err.Error())
