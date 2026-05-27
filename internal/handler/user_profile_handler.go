@@ -138,6 +138,39 @@ func (h *UserProfileHandler) CompleteOnboarding(c *gin.Context) {
 	}
 	userID, _ := userIDVal.(int)
 
+	// Fetch current user profile to determine their role
+	user, err := h.service.GetProfile(userID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Gagal mengambil data profil: "+err.Error())
+		return
+	}
+	if user == nil {
+		response.Error(c, http.StatusNotFound, "User tidak ditemukan")
+		return
+	}
+
+	if user.Role == "teacher" {
+		var req domain.CompleteTeacherOnboardingPayload
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		req.UserID = userID
+
+		updatedUser, err := h.service.CompleteTeacherOnboarding(req)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "Gagal menyelesaikan onboarding guru: "+err.Error())
+			return
+		}
+
+		response.Success(c, http.StatusOK, "Onboarding guru berhasil diselesaikan", gin.H{
+			"userId":           updatedUser.ID,
+			"profileCompleted": updatedUser.ProfileCompleted,
+		})
+		return
+	}
+
+	// For student and others
 	var req struct {
 		FullName     *string `json:"fullName"`
 		NIP          *string `json:"nip"`
@@ -149,7 +182,7 @@ func (h *UserProfileHandler) CompleteOnboarding(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.UpdateProfile(domain.UserProfileUpdatePayload{
+	updatedUser, err := h.service.UpdateProfile(domain.UserProfileUpdatePayload{
 		UserID: userID,
 		UserProfileUpdateRequest: domain.UserProfileUpdateRequest{
 			FullName:          req.FullName,
@@ -165,7 +198,7 @@ func (h *UserProfileHandler) CompleteOnboarding(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, "Onboarding berhasil diselesaikan", gin.H{
-		"userId":           user.ID,
-		"profileCompleted": user.ProfileCompleted,
+		"userId":           updatedUser.ID,
+		"profileCompleted": updatedUser.ProfileCompleted,
 	})
 }

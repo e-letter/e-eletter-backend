@@ -33,3 +33,11 @@ func (s *userProfileService) UpdateProfile(req domain.UserProfileUpdatePayload) 
 	}
 	return s.repo.Update(req.UserID, req.UserProfileUpdateRequest)
 }
+
+func (s *userProfileService) CompleteTeacherOnboarding(payload domain.CompleteTeacherOnboardingPayload) (*domain.User, error) {
+	if payload.UserID <= 0 {
+		return nil, fmt.Errorf("Missing or invalid userId")
+	}
+	return s.repo.CompleteTeacherOnboarding(payload)
+}
+

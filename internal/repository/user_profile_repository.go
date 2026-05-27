@@ -2,7 +2,9 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Refliqx/backend-eletter/internal/domain"
@@ -281,4 +283,173 @@ func (r *userProfileRepository) Update(userID int, payload domain.UserProfileUpd
 		return nil, err
 	}
 	return r.GetByUserID(userID)
+}
+
+func (r *userProfileRepository) CompleteTeacherOnboarding(payload domain.CompleteTeacherOnboardingPayload) (*domain.User, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// 1. Insert/Update base teacher profile
+	var teacherID int64
+	err = tx.QueryRow(`SELECT id FROM teacher_profiles WHERE user_id = ?`, payload.UserID).Scan(&teacherID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			res, err := tx.Exec(
+				`INSERT INTO teacher_profiles (user_id, full_name, employee_code, gender, signature_url, active)
+				 VALUES (?, ?, ?, ?, ?, 1)`,
+				payload.UserID, payload.FullName, payload.NIP, payload.Gender, payload.SignatureUrl,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("gagal membuat profil guru: %w", err)
+			}
+			teacherID, err = res.LastInsertId()
+			if err != nil {
+				return nil, fmt.Errorf("gagal mendapatkan ID profil guru baru: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("gagal memeriksa profil guru: %w", err)
+		}
+	} else {
+		_, err = tx.Exec(
+			`UPDATE teacher_profiles 
+			 SET full_name = ?, employee_code = ?, gender = ?, signature_url = ?, active = 1, updated_at = NOW()
+			 WHERE id = ?`,
+			payload.FullName, payload.NIP, payload.Gender, payload.SignatureUrl, teacherID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("gagal mengupdate profil guru: %w", err)
+		}
+	}
+
+	// 2. Fetch active academic year
+	var academicYearID int64
+	err = tx.QueryRow(`SELECT id FROM academic_years WHERE is_active = 1 LIMIT 1`).Scan(&academicYearID)
+	if err != nil {
+		// Fallback to latest
+		_ = tx.QueryRow(`SELECT id FROM academic_years ORDER BY id DESC LIMIT 1`).Scan(&academicYearID)
+	}
+	if academicYearID == 0 {
+		return nil, fmt.Errorf("tidak ada tahun ajaran aktif")
+	}
+
+	// 3. Clear existing pending/active roles and assignments for this teacher first to prevent duplicates/orphans
+	_, _ = tx.Exec(`DELETE FROM teacher_roles WHERE teacher_id = ?`, teacherID)
+	_, _ = tx.Exec(`UPDATE class_homeroom_assignments SET is_active = 0 WHERE teacher_id = ? AND academic_year_id = ?`, teacherID, academicYearID)
+	_, _ = tx.Exec(`UPDATE major_head_assignments SET is_active = 0 WHERE teacher_id = ? AND academic_year_id = ?`, teacherID, academicYearID)
+	_, _ = tx.Exec(`DELETE FROM teacher_subjects WHERE teacher_id = ? AND academic_year_id = ?`, teacherID, academicYearID)
+	_, _ = tx.Exec(`DELETE FROM schedules WHERE teacher_id = ? AND academic_year_id = ?`, teacherID, academicYearID)
+
+	// 4. Process each selected role
+	for _, roleName := range payload.Roles {
+		var homeroomClassID sql.NullInt64
+		var majorID sql.NullInt64
+		var subjectIDsStr sql.NullString
+
+		if roleName == "wali_kelas" && payload.HomeroomClassID > 0 {
+			homeroomClassID.Int64 = int64(payload.HomeroomClassID)
+			homeroomClassID.Valid = true
+
+			// Deactivate existing Wakel for this class
+			_, err = tx.Exec(
+				`UPDATE class_homeroom_assignments SET is_active = 0, updated_at = NOW()
+				 WHERE class_id = ? AND academic_year_id = ?`,
+				payload.HomeroomClassID, academicYearID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("gagal menonaktifkan wali kelas lama: %w", err)
+			}
+
+			// Insert new Wakel assignment
+			_, err = tx.Exec(
+				`INSERT INTO class_homeroom_assignments (class_id, teacher_id, academic_year_id, is_active)
+				 VALUES (?, ?, ?, 1)
+				 ON DUPLICATE KEY UPDATE is_active = 1, updated_at = NOW()`,
+				payload.HomeroomClassID, teacherID, academicYearID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("gagal menyimpan wali kelas assignment: %w", err)
+			}
+		}
+
+		if roleName == "kapro" && payload.MajorID > 0 {
+			majorID.Int64 = int64(payload.MajorID)
+			majorID.Valid = true
+
+			// Deactivate existing Kapro for this major
+			_, err = tx.Exec(
+				`UPDATE major_head_assignments SET is_active = 0, updated_at = NOW()
+				 WHERE major_id = ? AND academic_year_id = ?`,
+				payload.MajorID, academicYearID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("gagal menonaktifkan kapro lama: %w", err)
+			}
+
+			// Insert new Kapro assignment
+			_, err = tx.Exec(
+				`INSERT INTO major_head_assignments (major_id, teacher_id, academic_year_id, is_active)
+				 VALUES (?, ?, ?, 1)
+				 ON DUPLICATE KEY UPDATE is_active = 1, updated_at = NOW()`,
+				payload.MajorID, teacherID, academicYearID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("gagal menyimpan kepala program assignment: %w", err)
+			}
+		}
+
+		if roleName == "guru_mapel" && len(payload.Subjects) > 0 {
+			parts := make([]string, len(payload.Subjects))
+			for i, id := range payload.Subjects {
+				parts[i] = strconv.Itoa(id)
+			}
+			subjectIDsStr.String = strings.Join(parts, ",")
+			subjectIDsStr.Valid = true
+
+			// Insert teacher_subjects rows
+			for _, subjID := range payload.Subjects {
+				_, err = tx.Exec(
+					`INSERT INTO teacher_subjects (teacher_id, subject_id, academic_year_id, is_permanent, is_active)
+					 VALUES (?, ?, ?, 0, 1)
+					 ON DUPLICATE KEY UPDATE is_active = 1, updated_at = NOW()`,
+					teacherID, subjID, academicYearID,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("gagal menyimpan subject guru: %w", err)
+				}
+			}
+
+			// Insert schedules rows
+			for _, sched := range payload.Schedules {
+				_, err = tx.Exec(
+					`INSERT INTO schedules (academic_year_id, class_id, subject_id, teacher_id, day_of_week, start_time, end_time, is_active)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+					academicYearID, sched.ClassID, sched.SubjectID, teacherID, sched.DayOfWeek, sched.StartTime, sched.EndTime,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("gagal menyimpan jadwal mengajar: %w", err)
+				}
+			}
+		}
+
+		// Save the active role to teacher_roles
+		_, err = tx.Exec(
+			`INSERT INTO teacher_roles (teacher_id, role_name, academic_year_id, status, homeroom_class_id, major_id, subject_ids)
+			 VALUES (?, ?, ?, 'active', ?, ?, ?)
+			 ON DUPLICATE KEY UPDATE status = 'active', homeroom_class_id = VALUES(homeroom_class_id), major_id = VALUES(major_id), subject_ids = VALUES(subject_ids), updated_at = NOW()`,
+			teacherID, roleName, academicYearID, homeroomClassID, majorID, subjectIDsStr,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("gagal menyimpan peran guru: %w", err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return r.GetByUserID(payload.UserID)
 }
