@@ -87,7 +87,9 @@ func (r *permissionRepository) GetUserByNISN(nisn string) (*domain.User, error) 
 		       sp.phone as phone_number,
 		       (SELECT sce.class_id FROM student_class_enrollments sce WHERE sce.student_id = sp.id AND sce.is_active = 1 LIMIT 1) as class_id,
 		       false as can_request_dispensasi,
-		       COALESCE(sp.active, 0) as profile_completed
+		       COALESCE(sp.active, 0) as profile_completed,
+		       sp.created_at,
+		       sp.updated_at
 		FROM users u
 		JOIN student_profiles sp ON sp.user_id = u.id
 		WHERE sp.student_code = ? AND u.status = 'active' AND u.deleted_at IS NULL
@@ -114,7 +116,9 @@ func (r *permissionRepository) GetUserByID(userID int) (*domain.User, error) {
 		       CASE WHEN u.role IN ('teacher','kepala_sekolah') THEN COALESCE(tp.active, 0)
 		            WHEN u.role = 'student' THEN COALESCE(sp.active, 0)
 		            ELSE false
-		       END as profile_completed
+		       END as profile_completed,
+		       COALESCE(tp.created_at, sp.created_at, u.created_at) as created_at,
+		       COALESCE(tp.updated_at, sp.updated_at, u.updated_at) as updated_at
 		FROM users u
 		LEFT JOIN teacher_profiles tp ON tp.user_id = u.id
 		LEFT JOIN student_profiles sp ON sp.user_id = u.id

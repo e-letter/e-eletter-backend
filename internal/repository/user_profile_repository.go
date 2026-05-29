@@ -65,7 +65,9 @@ func (r *userProfileRepository) GetByUserID(userID int) (*domain.User, error) {
                 WHEN u.role = 'kepala_sekolah' THEN COALESCE(pp.active, 0)
                 WHEN u.role = 'student' THEN COALESCE(sp.active, 0)
                 ELSE false
-           END as profile_completed
+           END as profile_completed,
+           COALESCE(tp.created_at, sp.created_at, pp.created_at, u.created_at) as created_at,
+           COALESCE(tp.updated_at, sp.updated_at, pp.updated_at, u.updated_at) as updated_at
     FROM users u
     LEFT JOIN teacher_profiles tp ON tp.user_id = u.id
     LEFT JOIN student_profiles sp ON sp.user_id = u.id
@@ -89,7 +91,7 @@ func (r *userProfileRepository) Update(userID int, payload domain.UserProfileUpd
 	defer tx.Rollback()
 
 	if payload.Email != nil {
-		if _, err := tx.Exec(`UPDATE users SET email = ? WHERE id = ?`, *payload.Email, userID); err != nil {
+		if _, err := tx.Exec(`UPDATE users SET email = ?, updated_at = NOW() WHERE id = ?`, *payload.Email, userID); err != nil {
 			return nil, err
 		}
 	}
@@ -231,6 +233,7 @@ func (r *userProfileRepository) Update(userID int, payload domain.UserProfileUpd
 		var existingProfileID int
 		profileErr := tx.QueryRow(fmt.Sprintf(`SELECT id FROM %s WHERE user_id = ? LIMIT 1`, tableName), userID).Scan(&existingProfileID)
 		if profileErr == nil {
+			updates = append(updates, "updated_at = NOW()")
 			query := fmt.Sprintf(`UPDATE %s SET %s WHERE user_id = ?`, tableName, strings.Join(updates, ", "))
 			finalArgs := append(args, userID)
 			if _, err := tx.Exec(query, finalArgs...); err != nil {

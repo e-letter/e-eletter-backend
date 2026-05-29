@@ -745,6 +745,7 @@ func (h *AdminHandler) UploadConfigImage(c *gin.Context) {
 		"illustration_login_orange": true,
 		"illustration_login_blue":   true,
 		"illustration_register":     true,
+		"bg_landing":                true,
 	}
 	if !allowedKeys[configKey] {
 		response.Error(c, http.StatusBadRequest, "config_key tidak valid")

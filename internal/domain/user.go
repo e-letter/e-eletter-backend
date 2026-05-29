@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type User struct {
 	ID       int     `json:"id" db:"id"`
 	Username *string `json:"username,omitempty" db:"username"`
@@ -8,14 +10,16 @@ type User struct {
 	Status   string  `json:"status" db:"status"`
 
 	// Computed from profile JOINs — not direct columns in users table
-	FullName             *string `json:"full_name,omitempty"`
-	StudentCode          *string `json:"student_code,omitempty"`
-	EmployeeCode         *string `json:"employee_code,omitempty"`
-	Gender               *string `json:"gender,omitempty"`
-	PhoneNumber          *string `json:"phone_number,omitempty"`
-	ClassID              *int    `json:"class_id,omitempty"`
-	CanRequestDispensasi bool    `json:"can_request_dispensasi"`
-	ProfileCompleted     bool    `json:"profile_completed"`
+	FullName             *string    `json:"full_name,omitempty"`
+	StudentCode          *string    `json:"student_code,omitempty"`
+	EmployeeCode         *string    `json:"employee_code,omitempty"`
+	Gender               *string    `json:"gender,omitempty"`
+	PhoneNumber          *string    `json:"phone_number,omitempty"`
+	ClassID              *int       `json:"class_id,omitempty"`
+	CanRequestDispensasi bool       `json:"can_request_dispensasi"`
+	ProfileCompleted     bool       `json:"profile_completed"`
+	CreatedAt            *time.Time `json:"created_at,omitempty"`
+	UpdatedAt            *time.Time `json:"updated_at,omitempty"`
 
 	PasswordHash string `json:"-" db:"password_hash"`
 }

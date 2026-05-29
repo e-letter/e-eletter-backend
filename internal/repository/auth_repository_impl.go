@@ -31,7 +31,9 @@ func (r *authRepository) GetUserByLoginIdentifiers(id string) (*domain.User, err
 		            WHEN u.role = 'kepala_sekolah' THEN COALESCE(pp.active, 0)
 		            WHEN u.role = 'student' THEN COALESCE(sp.active, 0)
 		            ELSE false
-		       END as profile_completed
+		       END as profile_completed,
+		       COALESCE(tp.created_at, sp.created_at, pp.created_at, u.created_at) as created_at,
+		       COALESCE(tp.updated_at, sp.updated_at, pp.updated_at, u.updated_at) as updated_at
 		FROM users u
 		LEFT JOIN teacher_profiles tp ON tp.user_id = u.id
 		LEFT JOIN student_profiles sp ON sp.user_id = u.id
@@ -68,7 +70,9 @@ func (r *authRepository) GetUserByEmail(email string) (*domain.User, error) {
 		            WHEN u.role = 'kepala_sekolah' THEN COALESCE(pp.active, 0)
 		            WHEN u.role = 'student' THEN COALESCE(sp.active, 0)
 		            ELSE false
-		       END as profile_completed
+		       END as profile_completed,
+		       COALESCE(tp.created_at, sp.created_at, pp.created_at, u.created_at) as created_at,
+		       COALESCE(tp.updated_at, sp.updated_at, pp.updated_at, u.updated_at) as updated_at
 		FROM users u
 		LEFT JOIN teacher_profiles tp ON tp.user_id = u.id
 		LEFT JOIN student_profiles sp ON sp.user_id = u.id
@@ -92,6 +96,8 @@ func (r *authRepository) GetUserByEmail(email string) (*domain.User, error) {
 		&user.ClassID,
 		&user.CanRequestDispensasi,
 		&user.ProfileCompleted,
+		&user.CreatedAt,
+		&user.UpdatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -170,7 +176,9 @@ func (r *authRepository) GetUserByID(userID int) (*domain.User, error) {
 		            WHEN u.role = 'kepala_sekolah' THEN COALESCE(pp.active, 0)
 		            WHEN u.role = 'student' THEN COALESCE(sp.active, 0)
 		            ELSE false
-		       END as profile_completed
+		       END as profile_completed,
+		       COALESCE(tp.created_at, sp.created_at, pp.created_at, u.created_at) as created_at,
+		       COALESCE(tp.updated_at, sp.updated_at, pp.updated_at, u.updated_at) as updated_at
 		FROM users u
 		LEFT JOIN teacher_profiles tp ON tp.user_id = u.id
 		LEFT JOIN student_profiles sp ON sp.user_id = u.id
@@ -307,6 +315,8 @@ func scanUser(row *sql.Row) (*domain.User, error) {
 		&user.ClassID,
 		&user.CanRequestDispensasi,
 		&user.ProfileCompleted,
+		&user.CreatedAt,
+		&user.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
