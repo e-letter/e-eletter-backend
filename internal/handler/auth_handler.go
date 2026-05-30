@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strings"
@@ -13,13 +14,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type AuthHandler struct {
-	service service.AuthService
-	cfg     *config.Config
+type RateLimiter interface {
+	ResetRateLimit(ctx context.Context, ip string) error
 }
 
-func NewAuthHandler(s service.AuthService, cfg *config.Config) *AuthHandler {
-	return &AuthHandler{service: s, cfg: cfg}
+type AuthHandler struct {
+	service     service.AuthService
+	cfg         *config.Config
+	rateLimiter RateLimiter
+}
+
+func NewAuthHandler(s service.AuthService, cfg *config.Config, rl RateLimiter) *AuthHandler {
+	return &AuthHandler{service: s, cfg: cfg, rateLimiter: rl}
 }
 
 func setRefreshCookie(c *gin.Context, value string, maxAge int) {
@@ -68,6 +74,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	if h.rateLimiter != nil {
+		_ = h.rateLimiter.ResetRateLimit(c.Request.Context(), c.ClientIP())
+	}
+
 	setRefreshCookie(c, refreshToken, 30*24*60*60)
 	response.Raw(c, http.StatusOK, gin.H{
 		"success": true,
@@ -91,6 +101,10 @@ func (h *AuthHandler) AdminLogin(c *gin.Context) {
 	if req.Username != h.cfg.Admin.Username || req.Password != h.cfg.Admin.Password {
 		response.Error(c, http.StatusUnauthorized, "Kredensial admin tidak valid")
 		return
+	}
+
+	if h.rateLimiter != nil {
+		_ = h.rateLimiter.ResetRateLimit(c.Request.Context(), c.ClientIP())
 	}
 
 	accessToken, refreshToken, adminUserID, err := h.service.IssueAdminTokens(h.cfg.Admin.Username)
@@ -122,6 +136,10 @@ func (h *AuthHandler) KepsekLogin(c *gin.Context) {
 	if req.Username != h.cfg.Kepsek.Username || req.Password != h.cfg.Kepsek.Password {
 		response.Error(c, http.StatusUnauthorized, "Kredensial kepsek tidak valid")
 		return
+	}
+
+	if h.rateLimiter != nil {
+		_ = h.rateLimiter.ResetRateLimit(c.Request.Context(), c.ClientIP())
 	}
 
 	accessToken, refreshToken, kepsekUserID, err := h.service.IssueAdminTokens(h.cfg.Kepsek.Username)

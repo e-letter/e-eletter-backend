@@ -32,7 +32,7 @@ func main() {
 	authRepo := repository.NewAuthRepository(db)
 	notificationRepo := repository.NewNotificationRepository(db)
 	authService := service.NewAuthService(authRepo, notificationRepo, cfg.JWT.Secret, cfg.JWT.AccessExpiresIn, cfg.JWT.RefreshExpiresIn)
-	authHandler := handler.NewAuthHandler(authService, cfg)
+	authHandler := handler.NewAuthHandler(authService, cfg, rateLimiter)
 
 	userProfileRepo := repository.NewUserProfileRepository(db)
 	userProfileService := service.NewUserProfileService(userProfileRepo)
