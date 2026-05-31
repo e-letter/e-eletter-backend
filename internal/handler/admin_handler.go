@@ -411,7 +411,7 @@ func (h *AdminHandler) RejectTeacherRole(c *gin.Context) {
 }
 
 func (h *AdminHandler) GetAcademicYears(c *gin.Context) {
-	rows, err := h.db.Query(`SELECT id, year_name, semester, is_active, start_date, end_date FROM academic_years ORDER BY id DESC`)
+	rows, err := h.db.Query(`SELECT id, name, is_active, start_date, end_date FROM academic_years ORDER BY id DESC`)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -419,8 +419,7 @@ func (h *AdminHandler) GetAcademicYears(c *gin.Context) {
 	defer rows.Close()
 	type AY struct {
 		ID        int    `json:"id"`
-		YearName  string `json:"year_name"`
-		Semester  int    `json:"semester"`
+		Name      string `json:"name"`
 		IsActive  bool   `json:"is_active"`
 		StartDate string `json:"start_date"`
 		EndDate   string `json:"end_date"`
@@ -428,7 +427,7 @@ func (h *AdminHandler) GetAcademicYears(c *gin.Context) {
 	var items []AY
 	for rows.Next() {
 		var a AY
-		rows.Scan(&a.ID, &a.YearName, &a.Semester, &a.IsActive, &a.StartDate, &a.EndDate)
+		rows.Scan(&a.ID, &a.Name, &a.IsActive, &a.StartDate, &a.EndDate)
 		items = append(items, a)
 	}
 	response.Raw(c, http.StatusOK, gin.H{"success": true, "data": items})
@@ -436,8 +435,7 @@ func (h *AdminHandler) GetAcademicYears(c *gin.Context) {
 
 func (h *AdminHandler) CreateAcademicYear(c *gin.Context) {
 	var body struct {
-		YearName  string `json:"year_name" binding:"required"`
-		Semester  int    `json:"semester" binding:"required"`
+		Name      string `json:"name" binding:"required"`
 		StartDate string `json:"start_date" binding:"required"`
 		EndDate   string `json:"end_date" binding:"required"`
 	}
@@ -445,8 +443,8 @@ func (h *AdminHandler) CreateAcademicYear(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	_, err := h.db.Exec(`INSERT INTO academic_years (year_name, semester, start_date, end_date, is_active) VALUES (?, ?, ?, ?, 0)`,
-		body.YearName, body.Semester, body.StartDate, body.EndDate)
+	_, err := h.db.Exec(`INSERT INTO academic_years (name, start_date, end_date, is_active) VALUES (?, ?, ?, 0)`,
+		body.Name, body.StartDate, body.EndDate)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -457,8 +455,7 @@ func (h *AdminHandler) CreateAcademicYear(c *gin.Context) {
 func (h *AdminHandler) UpdateAcademicYear(c *gin.Context) {
 	id := c.Param("id")
 	var body struct {
-		YearName  *string `json:"year_name"`
-		Semester  *int    `json:"semester"`
+		Name      *string `json:"name"`
 		IsActive  *bool   `json:"is_active"`
 		StartDate *string `json:"start_date"`
 		EndDate   *string `json:"end_date"`
@@ -470,8 +467,8 @@ func (h *AdminHandler) UpdateAcademicYear(c *gin.Context) {
 	if body.IsActive != nil && *body.IsActive {
 		h.db.Exec(`UPDATE academic_years SET is_active = 0`)
 	}
-	h.db.Exec(`UPDATE academic_years SET year_name = COALESCE(?, year_name), semester = COALESCE(?, semester), is_active = COALESCE(?, is_active), start_date = COALESCE(?, start_date), end_date = COALESCE(?, end_date) WHERE id = ?`,
-		body.YearName, body.Semester, body.IsActive, body.StartDate, body.EndDate, id)
+	h.db.Exec(`UPDATE academic_years SET name = COALESCE(?, name), is_active = COALESCE(?, is_active), start_date = COALESCE(?, start_date), end_date = COALESCE(?, end_date) WHERE id = ?`,
+		body.Name, body.IsActive, body.StartDate, body.EndDate, id)
 	response.Raw(c, http.StatusOK, gin.H{"success": true, "message": "Tahun ajaran berhasil diperbarui"})
 }
 

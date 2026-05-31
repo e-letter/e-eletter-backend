@@ -145,9 +145,9 @@ func (s *authService) IssueAdminTokens(adminUsername string) (string, string, in
 	// Resolve the real user_id from the database to satisfy the FK on jwt_tokens.
 	lookupUsername := adminUsername
 	if lookupUsername == "admin" {
-		lookupUsername = "A001"
+		lookupUsername = "ADM-001"
 	} else if lookupUsername == "kepsek" {
-		lookupUsername = "KS001"
+		lookupUsername = "KS-001"
 	}
 
 	user, err := s.repo.GetUserByLoginIdentifiers(lookupUsername)
@@ -158,23 +158,21 @@ func (s *authService) IssueAdminTokens(adminUsername string) (string, string, in
 	// Determine role and main role based on username
 	var role string
 	var mainRole string
-	if lookupUsername == "A001" {
+	if lookupUsername == "ADM-001" {
 		role = "admin"
 		mainRole = "Admin"
-	} else if lookupUsername == "KS001" {
+	} else if lookupUsername == "KS-001" {
 		role = "kepala_sekolah"
 		mainRole = "Kepsek"
 	} else {
-		// Fallback - should not happen with current usage
 		role = "admin"
 		mainRole = "Admin"
 	}
 
-	// Determine email
 	email := "admin@system"
-	if lookupUsername == "A001" {
+	if lookupUsername == "ADM-001" {
 		email = "admin@system"
-	} else if lookupUsername == "KS001" {
+	} else if lookupUsername == "KS-001" {
 		email = "kepsek@system"
 	}
 
