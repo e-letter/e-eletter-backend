@@ -55,16 +55,31 @@ func (r *permissionRepository) ListAll(startDate, endDate string) ([]domain.Perm
 }
 
 func (r *permissionRepository) ListByUser(userID int, startDate, endDate string) ([]domain.PermissionRequest, error) {
+	// Scope: include letters where the user is EITHER
+	//   (a) the requester (izin_masuk/izin_keluar self-submitted), OR
+	//   (b) listed in request_students (dispensasi created by teacher on their behalf, or any letter
+	//       that was linked to the student via the create flow's fallback path).
+	// Use a subquery for the listed-student check instead of a LEFT JOIN + OR in WHERE — referencing a
+	// LEFT-JOINed column in a WHERE OR can be folded into an implicit INNER JOIN by the MariaDB optimizer,
+	// which would silently drop letters whose only join is via request_students.
 	query := `
 		SELECT r.id, r.request_type_id, r.request_number, r.requester_user_id, r.reason, r.request_date, r.start_time, r.end_time, r.status, r.current_step, r.created_at, r.updated_at,
-		       sp.full_name AS student_name, c.class_name AS class_name
+		       COALESCE(sp_req.full_name, sp_target.full_name) AS student_name,
+		       COALESCE(c_req.class_name, c_target.class_name) AS class_name
 		FROM requests r
-		LEFT JOIN student_profiles sp ON sp.user_id = r.requester_user_id
-		LEFT JOIN student_class_enrollments sce ON sce.student_id = sp.id AND sce.is_active = 1
-		LEFT JOIN classes c ON c.id = sce.class_id
-		WHERE r.requester_user_id = ? AND r.deleted_at IS NULL
+		LEFT JOIN student_profiles sp_req ON sp_req.user_id = r.requester_user_id
+		LEFT JOIN student_class_enrollments sce_req ON sce_req.student_id = sp_req.id AND sce_req.is_active = 1
+		LEFT JOIN classes c_req ON c_req.id = sce_req.class_id
+		LEFT JOIN request_students rs ON rs.request_id = r.id AND rs.student_id = (
+		    SELECT id FROM student_profiles WHERE user_id = ? LIMIT 1
+		)
+		LEFT JOIN student_profiles sp_target ON sp_target.id = rs.student_id
+		LEFT JOIN student_class_enrollments sce_target ON sce_target.student_id = sp_target.id AND sce_target.is_active = 1
+		LEFT JOIN classes c_target ON c_target.id = sce_target.class_id
+		WHERE r.deleted_at IS NULL
+		  AND (r.requester_user_id = ? OR rs.request_id IS NOT NULL)
 	`
-	args := []any{userID}
+	args := []any{userID, userID}
 	if startDate != "" {
 		query += " AND r.request_date >= ?"
 		args = append(args, startDate)
@@ -724,7 +739,45 @@ func (r *permissionRepository) GetRequestDetail(requestID int) (any, error) {
 		steps = append(steps, s)
 	}
 
-	return map[string]any{"request": req, "approval_steps": steps}, nil
+	studentRows, err := r.db.Query(`
+		SELECT sp.id, sp.user_id, sp.full_name, sp.student_code,
+		       COALESCE(c.class_name, '-'), COALESCE(u.email, '-')
+		FROM request_students rs
+		JOIN student_profiles sp ON sp.id = rs.student_id AND sp.deleted_at IS NULL
+		JOIN users u ON u.id = sp.user_id AND u.deleted_at IS NULL
+		LEFT JOIN student_class_enrollments sce ON sce.student_id = sp.id AND sce.is_active = 1
+		LEFT JOIN classes c ON c.id = sce.class_id
+		WHERE rs.request_id = ?
+		ORDER BY sp.full_name ASC
+	`, requestID)
+	if err != nil {
+		return nil, err
+	}
+	defer studentRows.Close()
+
+	type StudentEntry struct {
+		ID          int    `json:"id"`
+		UserID      int    `json:"user_id"`
+		FullName    string `json:"full_name"`
+		StudentCode string `json:"student_code"`
+		ClassName   string `json:"class_name"`
+		Email       string `json:"email"`
+	}
+
+	students := make([]StudentEntry, 0)
+	for studentRows.Next() {
+		var s StudentEntry
+		if err := studentRows.Scan(&s.ID, &s.UserID, &s.FullName, &s.StudentCode, &s.ClassName, &s.Email); err != nil {
+			continue
+		}
+		students = append(students, s)
+	}
+
+	return map[string]any{
+		"request":        req,
+		"approval_steps": steps,
+		"students":       students,
+	}, nil
 }
 
 func (r *permissionRepository) GetTeacherRoles(userID int) (any, error) {

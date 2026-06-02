@@ -66,23 +66,37 @@ func (s *letterService) ListForTeacher(typeKey string, page, limit int) (*domain
 }
 
 func (s *letterService) ListForTeacherScoped(userID int, typeKey string, page, limit int) (*domain.PaginatedLetterResponse, error) {
-	roles, err := s.repo.GetTeacherActiveRoles(userID)
+	// Kepala Sekolah (principal_profiles) has global read access per docs/RBAC.md §1;
+	// skip the teacher_roles check for them since they have no teacher_profiles row.
+	isPrincipal, err := s.repo.IsActivePrincipal(userID)
 	if err != nil {
 		return nil, err
 	}
-	if len(roles) == 0 {
-		return nil, errors.New("forbidden: no active roles")
+	if !isPrincipal {
+		roles, err := s.repo.GetTeacherActiveRoles(userID)
+		if err != nil {
+			return nil, err
+		}
+		if len(roles) == 0 {
+			return nil, errors.New("forbidden: no active roles")
+		}
 	}
 	return s.repo.ListLettersForTeacherScoped(userID, typeKey, page, limit)
 }
 
 func (s *letterService) ListPendingForTeacher(userID int, page, limit int) (*domain.PaginatedLetterResponse, error) {
-	roles, err := s.repo.GetTeacherActiveRoles(userID)
+	isPrincipal, err := s.repo.IsActivePrincipal(userID)
 	if err != nil {
 		return nil, err
 	}
-	if len(roles) == 0 {
-		return nil, errors.New("forbidden: no active roles")
+	if !isPrincipal {
+		roles, err := s.repo.GetTeacherActiveRoles(userID)
+		if err != nil {
+			return nil, err
+		}
+		if len(roles) == 0 {
+			return nil, errors.New("forbidden: no active roles")
+		}
 	}
 	return s.repo.ListPendingForTeacher(userID, page, limit)
 }

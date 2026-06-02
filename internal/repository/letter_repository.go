@@ -418,29 +418,41 @@ func (r *letterRepository) ListLettersForUser(userID int, typeKey string, page, 
 	offset := (page - 1) * limit
 	var totalItems int
 	err := r.db.QueryRow(`
-		SELECT COUNT(*)
+		SELECT COUNT(DISTINCT r.id)
 		FROM requests r
 		JOIN request_types rt ON rt.id = r.request_type_id
-		WHERE r.requester_user_id = ? AND rt.code = ? AND r.deleted_at IS NULL
-	`, userID, typeKey).Scan(&totalItems)
+		LEFT JOIN request_students rs ON rs.request_id = r.id
+		    AND rs.student_id = (SELECT id FROM student_profiles WHERE user_id = ? LIMIT 1)
+		WHERE rt.code = ? AND r.deleted_at IS NULL
+		  AND (r.requester_user_id = ? OR rs.request_id IS NOT NULL)
+	`, userID, typeKey, userID).Scan(&totalItems)
 	if err != nil {
 		return nil, err
 	}
 
 	rows, err := r.db.Query(`
 		SELECT r.id, rt.label, r.reason, r.status, r.request_date, r.created_at, r.updated_at, r.start_time, r.end_time,
-		       COALESCE(sp.full_name,''), COALESCE(c.class_name,'-'), COALESCE(sp.student_code,'-'), COALESCE(u.email,'-')
+		       COALESCE(sp_req.full_name, sp_target.full_name, ''),
+		       COALESCE(c_req.class_name, c_target.class_name, '-'),
+		       COALESCE(sp_req.student_code, sp_target.student_code, '-'),
+		       COALESCE(u.email, '-')
 		FROM requests r
 		JOIN request_types rt ON rt.id = r.request_type_id
 		JOIN users u ON u.id = r.requester_user_id
-		LEFT JOIN student_profiles sp ON sp.user_id = u.id
-		LEFT JOIN student_class_enrollments sce ON sce.student_id = sp.id AND sce.is_active = 1
-		LEFT JOIN classes c ON c.id = sce.class_id
-		WHERE r.requester_user_id = ? AND rt.code = ? AND r.deleted_at IS NULL
+		LEFT JOIN student_profiles sp_req ON sp_req.user_id = r.requester_user_id
+		LEFT JOIN student_class_enrollments sce_req ON sce_req.student_id = sp_req.id AND sce_req.is_active = 1
+		LEFT JOIN classes c_req ON c_req.id = sce_req.class_id
+		LEFT JOIN request_students rs ON rs.request_id = r.id
+		    AND rs.student_id = (SELECT id FROM student_profiles WHERE user_id = ? LIMIT 1)
+		LEFT JOIN student_profiles sp_target ON sp_target.id = rs.student_id
+		LEFT JOIN student_class_enrollments sce_target ON sce_target.student_id = sp_target.id AND sce_target.is_active = 1
+		LEFT JOIN classes c_target ON c_target.id = sce_target.class_id
+		WHERE rt.code = ? AND r.deleted_at IS NULL
+		  AND (r.requester_user_id = ? OR rs.request_id IS NOT NULL)
 		GROUP BY r.id
 		ORDER BY r.created_at DESC
 		LIMIT ? OFFSET ?
-	`, userID, typeKey, limit, offset)
+	`, userID, typeKey, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -793,6 +805,22 @@ func (r *letterRepository) GetTeacherActiveRoles(userID int) ([]domain.TeacherRo
 		roles = append(roles, r)
 	}
 	return roles, rows.Err()
+}
+
+func (r *letterRepository) IsActivePrincipal(userID int) (bool, error) {
+	var id int64
+	err := r.db.QueryRow(`
+		SELECT id FROM principal_profiles
+		WHERE user_id = ? AND active = 1 AND deleted_at IS NULL
+		LIMIT 1
+	`, userID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *letterRepository) ListLettersForTeacherScoped(userID int, typeKey string, page, limit int) (*domain.PaginatedLetterResponse, error) {

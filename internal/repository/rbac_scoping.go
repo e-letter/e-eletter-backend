@@ -10,6 +10,22 @@ import (
 // Consolidates the teacher_profile + teacher_roles lookup into a single query.
 // Integer values injected via fmt.Sprintf are sourced from the database (not user input), so this is SQL-safe.
 func BuildRBACScopeFilter(db *sql.DB, userID int) (string, error) {
+	// Kepala Sekolah short-circuit: global read-only access per docs/RBAC.md §1.
+	// principal_profiles is a separate table (kepala_sekolah users have no teacher_profiles row),
+	// so they must be detected here, not via the teacher_roles query below.
+	var principalID int64
+	err := db.QueryRow(`
+		SELECT id FROM principal_profiles
+		WHERE user_id = ? AND active = 1 AND deleted_at IS NULL
+		LIMIT 1
+	`, userID).Scan(&principalID)
+	if err == nil {
+		return "1=1", nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return "", err
+	}
+
 	// Single query: resolve teacher profile and active roles in one round trip.
 	rows, err := db.Query(`
 		SELECT tp.id AS teacher_id, tr.role_name

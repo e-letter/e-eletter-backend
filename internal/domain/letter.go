@@ -61,6 +61,7 @@ type LetterRepository interface {
 	ListTeacherLetters(userID int, page, limit int) (*PaginatedLetterResponse, error)
 	ListPendingForTeacher(userID int, page, limit int) (*PaginatedLetterResponse, error)
 	GetTeacherActiveRoles(userID int) ([]TeacherRole, error)
+	IsActivePrincipal(userID int) (bool, error)
 }
 
 type LetterService interface {
