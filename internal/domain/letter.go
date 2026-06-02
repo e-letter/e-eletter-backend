@@ -30,14 +30,15 @@ type TimeInfoDTO struct {
 }
 
 type LetterListItem struct {
-	ID          int            `json:"id"`
-	Title       string         `json:"title"`
-	Status      string         `json:"status"`
-	Date        string         `json:"date"`
-	Description string         `json:"description"`
-	StudentInfo StudentInfoDTO `json:"studentInfo"`
-	RequestInfo RequestInfoDTO `json:"requestInfo"`
-	TimeInfo    TimeInfoDTO    `json:"timeInfo"`
+	ID          int              `json:"id"`
+	Title       string           `json:"title"`
+	Status      string           `json:"status"`
+	Date        string           `json:"date"`
+	Description string           `json:"description"`
+	StudentInfo StudentInfoDTO   `json:"studentInfo"`
+	Students    []StudentInfoDTO `json:"students,omitempty"`
+	RequestInfo RequestInfoDTO   `json:"requestInfo"`
+	TimeInfo    TimeInfoDTO      `json:"timeInfo"`
 }
 
 type PaginatedLetterResponse struct {

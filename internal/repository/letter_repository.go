@@ -449,6 +449,9 @@ func (r *letterRepository) ListLettersForUser(userID int, typeKey string, page, 
 	if err != nil {
 		return nil, err
 	}
+	if err := r.populateStudentsForLetters(items); err != nil {
+		return nil, err
+	}
 
 	totalPages := totalItems / limit
 	if totalItems%limit != 0 {
@@ -496,6 +499,9 @@ func (r *letterRepository) ListLettersForTeacher(typeKey string, page, limit int
 	defer rows.Close()
 	items, err := scanLetterRows(rows)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.populateStudentsForLetters(items); err != nil {
 		return nil, err
 	}
 
@@ -556,6 +562,76 @@ func scanLetterRows(rows *sql.Rows) ([]domain.LetterListItem, error) {
 	}
 	return items, nil
 }
+
+func (r *letterRepository) populateStudentsForLetters(items []domain.LetterListItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	reqIDs := make([]int, len(items))
+	reqIDMap := make(map[int]int)
+	for i, item := range items {
+		reqIDs[i] = item.ID
+		reqIDMap[item.ID] = i
+	}
+
+	uniqueReqIDs := make([]int, 0, len(reqIDs))
+	seenIDs := make(map[int]bool)
+	for _, id := range reqIDs {
+		if !seenIDs[id] {
+			seenIDs[id] = true
+			uniqueReqIDs = append(uniqueReqIDs, id)
+		}
+	}
+
+	placeholders := make([]string, len(uniqueReqIDs))
+	args := make([]any, len(uniqueReqIDs))
+	for i, id := range uniqueReqIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT rs.request_id, sp.full_name, COALESCE(c.class_name, '-'), COALESCE(sp.student_code, '-'), COALESCE(u.email, '-')
+		FROM request_students rs
+		JOIN student_profiles sp ON sp.id = rs.student_id
+		JOIN users u ON u.id = sp.user_id
+		LEFT JOIN student_class_enrollments sce ON sce.student_id = sp.id AND sce.is_active = 1
+		LEFT JOIN classes c ON c.id = sce.class_id
+		WHERE rs.request_id IN (%s)
+	`, strings.Join(placeholders, ","))
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	studentsMap := make(map[int][]domain.StudentInfoDTO)
+	for rows.Next() {
+		var reqID int
+		var s domain.StudentInfoDTO
+		if err := rows.Scan(&reqID, &s.Name, &s.Class, &s.NISN, &s.Email); err != nil {
+			return err
+		}
+		studentsMap[reqID] = append(studentsMap[reqID], s)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for reqID, students := range studentsMap {
+		if idx, ok := reqIDMap[reqID]; ok {
+			items[idx].Students = students
+			if len(students) > 0 {
+				items[idx].StudentInfo = students[0]
+			}
+		}
+	}
+
+	return nil
+}
+
 
 func resolveRequestDate(requestDate string, startTime string, endTime string) string {
 	trimmed := strings.TrimSpace(requestDate)
@@ -680,6 +756,9 @@ func (r *letterRepository) ListGeneralDispensasi(userRole string, userID int, pa
 	if err != nil {
 		return nil, err
 	}
+	if err := r.populateStudentsForLetters(items); err != nil {
+		return nil, err
+	}
 
 	totalPages := totalItems / limit
 	if totalItems%limit != 0 {
@@ -762,6 +841,9 @@ func (r *letterRepository) ListLettersForTeacherScoped(userID int, typeKey strin
 	if err != nil {
 		return nil, err
 	}
+	if err := r.populateStudentsForLetters(items); err != nil {
+		return nil, err
+	}
 
 	totalPages := totalItems / limit
 	if totalItems%limit != 0 {
@@ -806,6 +888,9 @@ func (r *letterRepository) ListPendingForTeacher(userID int, page, limit int) (*
 	if err != nil {
 		return nil, err
 	}
+	if err := r.populateStudentsForLetters(items); err != nil {
+		return nil, err
+	}
 
 	totalPages := totalItems / limit
 	if totalItems%limit != 0 {
@@ -844,6 +929,9 @@ func (r *letterRepository) ListTeacherLetters(userID int, page, limit int) (*dom
 	defer rows.Close()
 	items, err := scanLetterRows(rows)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.populateStudentsForLetters(items); err != nil {
 		return nil, err
 	}
 
